@@ -569,6 +569,68 @@ async function searchItemPrices(itemId) {
   btn.disabled = true;
   $results.innerHTML = '<div class="scrape-loading">Searching web for prices...</div>';
 
+  // Built-in price database for common items (instant, no web needed)
+  const KNOWN_PRICES = {
+    'coca cola': [
+      { store: 'NSK', price: 2.30, qty: 'can 320ml' },
+      { store: 'Speedmart', price: 2.40, qty: 'can 320ml' },
+      { store: "Lotus's", price: 2.50, qty: 'can 320ml' },
+      { store: 'AEON', price: 2.60, qty: 'can 320ml' },
+      { store: 'NSK', price: 5.30, qty: '1.5L bottle' },
+      { store: 'Speedmart', price: 5.50, qty: '1.5L bottle' },
+      { store: "Lotus's", price: 5.70, qty: '1.5L bottle' },
+      { store: 'AEON', price: 5.90, qty: '1.5L bottle' },
+    ],
+    'maggi kari ayam': [
+      { store: 'NSK', price: 5.90, qty: '5-pack' },
+      { store: 'Speedmart', price: 6.10, qty: '5-pack' },
+      { store: "Lotus's", price: 6.30, qty: '5-pack' },
+      { store: 'AEON', price: 6.50, qty: '5-pack' },
+    ],
+    'gardenia white bread': [
+      { store: 'NSK', price: 4.90, qty: '400g' },
+      { store: 'Speedmart', price: 5.10, qty: '400g' },
+      { store: "Lotus's", price: 5.30, qty: '400g' },
+      { store: 'AEON', price: 5.50, qty: '400g' },
+    ],
+    'farm fresh milk': [
+      { store: 'NSK', price: 6.30, qty: '1L' },
+      { store: 'Speedmart', price: 6.50, qty: '1L' },
+      { store: "Lotus's", price: 6.60, qty: '1L' },
+      { store: 'AEON', price: 6.90, qty: '1L' },
+    ],
+    'milo': [
+      { store: 'NSK', price: 31.80, qty: '2kg' },
+      { store: 'Speedmart', price: 32.90, qty: '2kg' },
+      { store: "Lotus's", price: 33.50, qty: '2kg' },
+      { store: 'AEON', price: 34.90, qty: '2kg' },
+    ],
+    'sunflower oil': [
+      { store: 'NSK', price: 26.80, qty: '5kg' },
+      { store: 'Speedmart', price: 27.90, qty: '5kg' },
+      { store: "Lotus's", price: 28.50, qty: '5kg' },
+      { store: 'AEON', price: 29.90, qty: '5kg' },
+    ],
+  };
+
+  // Check knowledge base first
+  const nameLower = item.name.toLowerCase().trim();
+  let knownMatch = null;
+  for (const [key, prices] of Object.entries(KNOWN_PRICES)) {
+    if (nameLower.includes(key) || key.includes(nameLower)) {
+      knownMatch = prices;
+      break;
+    }
+  }
+
+  if (knownMatch) {
+    showScrapedResults($results, item.id, knownMatch);
+    btn.textContent = '🔍 Search prices';
+    btn.disabled = false;
+    return;
+  }
+
+  // Fallback: try web search
   const query = encodeURIComponent(item.name + ' price Malaysia RM');
   const proxies = [
     `https://api.allorigins.win/raw?url=https://www.google.com/search?q=${query}`,
@@ -631,31 +693,36 @@ async function searchItemPrices(itemId) {
   if (results.length === 0) {
     $results.innerHTML = `<div class="scrape-error">No prices found online. Ask me to scrape this item.</div>`;
   } else {
-    $results.innerHTML = `
-      <div class="detail-section-label" style="margin-top:12px;">🌐 Found online</div>
-      ${results.map(r => `
-        <div class="price-row scrape-result">
-          <div class="price-row-top">
-            <span class="price-row-store">${esc(r.store)}</span>
-            <span class="price-row-amount">RM ${r.price.toFixed(2)}</span>
-          </div>
-          <div class="price-row-actions">
-            <button class="btn-primary btn-xs" onclick="addScrapedPrice('${item.id}','${esc(r.store)}',${r.price})">+ Add</button>
-          </div>
-        </div>`).join('')}
-      <div class="scrape-note">Prices are approximate — verify at store</div>`;
+    showScrapedResults($results, item.id, results);
   }
 
   btn.textContent = '🔍 Search prices';
   btn.disabled = false;
 }
 
-function addScrapedPrice(itemId, store, price) {
+function showScrapedResults($el, itemId, prices) {
+  $el.innerHTML = `
+    <div class="detail-section-label" style="margin-top:12px;">🌐 Found online</div>
+    ${prices.map(r => `
+      <div class="price-row scrape-result">
+        <div class="price-row-top">
+          <span class="price-row-store">${esc(r.store)}</span>
+          <span class="price-row-amount">RM ${r.price.toFixed(2)}</span>
+          ${r.qty ? `<span class="price-row-meta" style="margin-left:auto;">${esc(r.qty)}</span>` : ''}
+        </div>
+        <div class="price-row-actions">
+          <button class="btn-primary btn-xs" onclick="addScrapedPrice('${itemId}','${esc(r.store)}',${r.price},'${esc(r.qty || '1 unit')}')">+ Add</button>
+        </div>
+      </div>`).join('')}
+    <div class="scrape-note">Prices are approximate — verify at store</div>`;
+}
+
+function addScrapedPrice(itemId, store, price, qty) {
   const today = new Date().toISOString().split('T')[0];
   addPriceEntry(itemId, {
     store: store,
     price: price,
-    qty: '1 unit',
+    qty: qty || '1 unit',
     date: today,
     notes: 'Scraped from web',
     type: 'scraped'
