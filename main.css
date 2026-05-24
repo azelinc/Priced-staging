@@ -522,6 +522,38 @@ button {
   font-weight: 500;
 }
 
+/* Scrape results */
+.scrape-result {
+  border-color: var(--primary);
+  background: rgba(88,166,255,0.05);
+}
+.scrape-loading {
+  text-align: center;
+  padding: 20px;
+  color: var(--text2);
+  font-size: 0.85rem;
+}
+.scrape-error {
+  text-align: center;
+  padding: 16px;
+  color: var(--text3);
+  font-size: 0.8rem;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  margin-top: 8px;
+}
+.scrape-note {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text3);
+  margin-top: 6px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Responsive */
 @media (max-width: 480px) {
   .app { padding: 12px 12px 90px; }

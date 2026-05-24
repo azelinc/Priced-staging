@@ -78,6 +78,9 @@ function bindEvents() {
   document.getElementById('item-modal').addEventListener('click', e => { if (e.target === $itemModal) closeItemModal(); });
 
   document.getElementById('btn-detail-close').addEventListener('click', closeDetailModal);
+  document.getElementById('btn-search-prices').addEventListener('click', () => {
+    if (detailItemId) searchItemPrices(detailItemId);
+  });
   document.getElementById('btn-detail-add-price').addEventListener('click', () => {
     closeDetailModal();
     openPriceModal(detailItemId);
@@ -552,6 +555,113 @@ function editPriceEntry(itemId, entryId) {
     closeDetailModal();
     openPriceModal(itemId, entry);
   }
+}
+
+// ─── Client-side Price Search ─────────────────────────────────────────
+
+async function searchItemPrices(itemId) {
+  const item = items.find(i => i.id === itemId);
+  if (!item) return;
+
+  const btn = document.getElementById('btn-search-prices');
+  const $results = document.getElementById('d-scrape-results');
+  btn.textContent = '⏳ Searching...';
+  btn.disabled = true;
+  $results.innerHTML = '<div class="scrape-loading">Searching web for prices...</div>';
+
+  const query = encodeURIComponent(item.name + ' price Malaysia RM');
+  const proxies = [
+    `https://api.allorigins.win/raw?url=https://www.google.com/search?q=${query}`,
+    `https://corsproxy.io/?url=${encodeURIComponent('https://www.google.com/search?q=' + query)}`,
+  ];
+
+  let html = '';
+  for (const proxyUrl of proxies) {
+    try {
+      const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+      if (resp.ok) { html = await resp.text(); break; }
+    } catch(_) { continue; }
+  }
+
+  if (!html) {
+    $results.innerHTML = `<div class="scrape-error">⚠️ Web search unavailable. Ask me to scrape this item instead.</div>`;
+    btn.textContent = '🔍 Search prices';
+    btn.disabled = false;
+    return;
+  }
+
+  // Parse prices from HTML
+  const found = [];
+  const rePrice = /RM\s*([0-9,.]+)/g;
+  let match;
+  const seen = new Set();
+
+  while ((match = rePrice.exec(html)) !== null) {
+    const price = parseFloat(match[1].replace(',', ''));
+    if (isNaN(price) || price < 0.10 || price > 999) continue;
+
+    // Get context around the price for store name
+    const start = Math.max(0, match.index - 80);
+    const ctx = html.substring(start, match.index)
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const words = ctx.split(' ');
+    const store = words.slice(-3).join(' ').replace(/[‑–—•·]/g, '').trim().slice(0, 28) || 'Online';
+
+    // Find best source name nearby
+    const fullCtx = html.substring(start, match.index + 20)
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const nameMatch = fullCtx.match(/.{0,40}RM/);
+    const name = nameMatch ? nameMatch[0].replace(/\s*RM\s*$/, '').trim().slice(0, 40) : item.name;
+
+    const key = store + '|' + price.toFixed(2);
+    if (!seen.has(key)) {
+      seen.add(key);
+      found.push({ store, price, name, key });
+    }
+  }
+
+  // Deduplicate: keep best price per store
+  const best = {};
+  for (const f of found) {
+    if (!best[f.store] || f.price < best[f.store].price) best[f.store] = f;
+  }
+
+  const results = Object.values(best).sort((a, b) => a.price - b.price).slice(0, 8);
+
+  if (results.length === 0) {
+    $results.innerHTML = `<div class="scrape-error">No prices found online. Ask me to scrape this item.</div>`;
+  } else {
+    $results.innerHTML = `
+      <div class="detail-section-label" style="margin-top:12px;">🌐 Found online</div>
+      ${results.map(r => `
+        <div class="price-row scrape-result">
+          <div class="price-row-top">
+            <span class="price-row-store">${esc(r.store)}</span>
+            <span class="price-row-amount">RM ${r.price.toFixed(2)}</span>
+          </div>
+          <div class="price-row-actions">
+            <button class="btn-primary btn-xs" onclick="addScrapedPrice('${item.id}','${esc(r.store)}',${r.price})">+ Add</button>
+          </div>
+        </div>`).join('')}
+      <div class="scrape-note">Prices are approximate — verify at store</div>`;
+  }
+
+  btn.textContent = '🔍 Search prices';
+  btn.disabled = false;
+}
+
+function addScrapedPrice(itemId, store, price) {
+  const today = new Date().toISOString().split('T')[0];
+  addPriceEntry(itemId, {
+    store: store,
+    price: price,
+    qty: '1 unit',
+    date: today,
+    notes: 'Scraped from web',
+    type: 'scraped'
+  });
+  toast('Added: ' + store + ' — RM ' + price.toFixed(2));
+  openDetail(itemId);
 }
 
 // Helpers
