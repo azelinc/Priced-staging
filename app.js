@@ -771,6 +771,16 @@ async function searchItemPrices(itemId, variantId) {
       { store: "Lotus's", price: 28.50, qty: '5kg' },
       { store: 'AEON', price: 29.90, qty: '5kg' },
     ],
+    'lifebuoy': [
+      { store: 'NSK', price: 3.80, qty: 'bar 100g' },
+      { store: 'Speedmart', price: 4.00, qty: 'bar 100g' },
+      { store: "Lotus's", price: 4.30, qty: 'bar 100g' },
+      { store: 'AEON', price: 4.50, qty: 'bar 100g' },
+      { store: 'NSK', price: 9.50, qty: 'liquid 650ml' },
+      { store: 'Speedmart', price: 10.00, qty: 'liquid 650ml' },
+      { store: "Lotus's", price: 10.90, qty: 'liquid 650ml' },
+      { store: 'AEON', price: 11.50, qty: 'liquid 650ml' },
+    ],
   };
 
   // Check knowledge base first

@@ -2,7 +2,7 @@ const CACHE_NAME = 'priced-v4';
 const ASSETS = [
   '/Priced/',
   '/Priced/index.html',
-  '/Priced/main.css?v=5',
+  '/Priced/main.css?v=6',
   '/Priced/app.js?v=4',
   '/Priced/manifest.json'
 ];
