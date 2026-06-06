@@ -1,8 +1,8 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
-// Version: v8
+// Version: v9
 
-const APP_VER = 'v8';
+const APP_VER = 'v9';
 const LS_KEY = 'priced_v2';
 const LS_BARCODES = 'priced_barcodes';
 const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
@@ -42,6 +42,8 @@ let detailItemId = null;
 let detailActiveVariant = null;
 let barcodeMap = {};
 let html5Scanner = null;
+let scannedBarcodeData = null; // { barcode, itemId } for OCR flow
+let ocrWorking = false;
 
 // DOM refs
 const $list = document.getElementById('items-list');
@@ -102,6 +104,8 @@ function bindEvents() {
   document.getElementById('btn-scanner-close').addEventListener('click', closeScanner);
   document.getElementById('scanner-modal').addEventListener('click', e => { if (e.target === $scannerModal) closeScanner(); });
   document.getElementById('btn-barcode-save').addEventListener('click', saveBarcodeItem);
+  document.getElementById('btn-capture-price').addEventListener('click', capturePriceFromTag);
+  document.getElementById('btn-skip-capture').addEventListener('click', skipPriceCapture);
 
   $search.addEventListener('input', render);
   $filterStore.addEventListener('change', render);
@@ -198,7 +202,6 @@ function loadBarcodeMapFirebase() {
   db.ref(`users/${user.uid}/barcodes`).once('value', snap => {
     const data = snap.val();
     if (data) {
-      // Merge: local takes precedence, Firebase fills gaps
       for (const [bc, val] of Object.entries(data)) {
         if (!barcodeMap[bc]) barcodeMap[bc] = val;
       }
@@ -221,8 +224,7 @@ function getItemByBarcode(barcode) {
 // Migrate legacy flat items to variant model
 function migrateItems(raw) {
   return raw.map(i => {
-    if (i.variants) return i; // already new format
-    // Legacy: item with flat prices
+    if (i.variants) return i;
     const vId = 'v1';
     const prices = i.prices && i.prices.length > 0
       ? i.prices.map(p => ({ ...p }))
@@ -366,11 +368,9 @@ function removePriceEntry(itemId, variantId, entryId) {
   item.updatedAt = Date.now();
   saveLocal();
   saveFirebase(item);
-  // Remove variant entirely if no prices left
   if (variant.prices.length === 0 && item.variants.length > 1) {
     item.variants = item.variants.filter(v => v.id !== variantId);
   }
-  // Remove item if no variants left
   if (item.variants.length === 0) {
     removeItem(itemId);
     toast('Item removed (empty)');
@@ -551,11 +551,9 @@ function openDetail(itemId, focusVariantId) {
   const vCount = getVariantCount(item);
 
   if (vCount <= 1 && item.variants[0].label === 'Default') {
-    // Single variant — show directly, no tabs
     $tabs.innerHTML = '';
     renderVariantSection($sections, item, item.variants[0]);
   } else {
-    // Multiple variants — show tabs
     const activeV = focusVariantId
       ? item.variants.find(v => v.id === focusVariantId) || item.variants[0]
       : item.variants[0];
@@ -586,7 +584,6 @@ function promptAddVariant(itemId) {
   if (label && label.trim()) {
     addVariant(itemId, label.trim());
     openDetail(itemId, itemId === detailItemId ? undefined : undefined);
-    // Re-open to show the new variant — find its id
     const item = items.find(i => i.id === itemId);
     if (item) {
       const newV = item.variants[item.variants.length - 1];
@@ -608,7 +605,6 @@ function renderVariantSection($el, item, variant) {
 
   let html = `<div class="variant-section" data-vid="${variant.id}">`;
 
-  // Variant header with rename/delete
   html += `<div class="variant-header">
     <span class="variant-label">${esc(variant.label)}</span>
     <div class="variant-actions">
@@ -617,14 +613,12 @@ function renderVariantSection($el, item, variant) {
     </div>
   </div>`;
 
-  // Summary
   html += `<div class="detail-summary">
     <div class="summary-card"><div class="summary-label">Price range</div><div class="summary-value">${priceRange}</div></div>
     <div class="summary-card"><div class="summary-label">Average</div><div class="summary-value">RM ${avgPrice.toFixed(2)}</div></div>
     <div class="summary-card"><div class="summary-label">Entries</div><div class="summary-value">${prices.length}</div></div>
   </div>`;
 
-  // Best deal
   if (cheapest) {
     html += `<div class="best-card">
       <div class="best-label">⭐ Best price</div>
@@ -637,7 +631,6 @@ function renderVariantSection($el, item, variant) {
     </div>`;
   }
 
-  // Price list
   if (prices.length === 0) {
     html += `<div class="empty-state" style="padding:20px 0;"><p>No prices for this size yet</p></div>`;
   } else {
@@ -665,7 +658,6 @@ function renderVariantSection($el, item, variant) {
     });
   }
 
-  // Per-variant actions
   html += `<div class="variant-actions-bar">
     <button class="btn-ghost btn-sm" onclick="searchItemPrices('${item.id}','${variant.id}')">🔍 Search prices</button>
     <button class="btn-primary btn-sm" onclick="openPriceModal('${item.id}','${variant.id}')">+ Add price</button>
@@ -708,7 +700,7 @@ function openPriceModal(itemId, variantId, entry) {
     document.getElementById('btn-price-delete').style.display = 'block';
   } else {
     priceEditIdx = null;
-    document.getElementById('p-title').textContent = 'Add Price';
+    document.getElementById('p-title').textContent = 'Add Price' + (entry === null ? '' : '');
     document.getElementById('p-store').value = '';
     document.getElementById('p-price').value = '';
     document.getElementById('p-qty').value = '1 unit';
@@ -763,7 +755,6 @@ function deletePriceEntry(itemId, variantId, entryId) {
   }
 }
 
-// Called inline from HTML
 function editPriceEntry(itemId, variantId, entryId) {
   const item = items.find(i => i.id === itemId);
   if (!item) return;
@@ -776,13 +767,16 @@ function editPriceEntry(itemId, variantId, entryId) {
   }
 }
 
-// ─── Barcode Scanner ──────────────────────────────────────────────────
+// ─── Barcode Scanner + Price Tag OCR ──────────────────────────────────
 
 function openScanner() {
+  scannedBarcodeData = null;
   $scannerModal.classList.add('show');
   document.getElementById('scanner-result').style.display = 'none';
+  document.getElementById('scanner-capture-area').style.display = 'none';
   document.getElementById('scanner-error').textContent = '';
   document.getElementById('scanner-view').innerHTML = '<div id="scanner-reader"></div>';
+  document.getElementById('scanner-hint').textContent = 'Point camera at barcode on price tag';
 
   startScanner();
 }
@@ -790,8 +784,9 @@ function openScanner() {
 function closeScanner() {
   stopScanner();
   $scannerModal.classList.remove('show');
-  // Reset barcode name form
   document.getElementById('barcode-name-wrap').style.display = 'none';
+  scannedBarcodeData = null;
+  ocrWorking = false;
 }
 
 function startScanner() {
@@ -817,7 +812,7 @@ function startScanner() {
         ]
       },
       onBarcodeScan,
-      () => {} // ignore non-decodable frames
+      () => {}
     ).catch(err => {
       document.getElementById('scanner-error').textContent = 'Camera error: ' + err;
     });
@@ -844,31 +839,47 @@ function onBarcodeScan(decodeText, decodeResult) {
   setTimeout(() => { scanCooldown = false; }, 2000);
 
   const barcode = decodeText.trim();
-  stopScanner();
 
-  // Check if this barcode is known
-  const existingItem = getItemByBarcode(barcode);
-  if (existingItem) {
-    closeScanner();
-    toast('Found: ' + existingItem.name);
-    openDetail(existingItem.id);
-    return;
+  // Pause decoding but keep camera alive for price capture
+  if (html5Scanner) {
+    try { html5Scanner.pause(); } catch(e) {}
   }
 
-  // Unknown barcode — prompt to name it
+  const existingItem = getItemByBarcode(barcode);
+
+  if (existingItem) {
+    scannedBarcodeData = { barcode, itemId: existingItem.id, name: existingItem.name };
+    showBarcodeResult(existingItem.name, barcode, true);
+  } else {
+    scannedBarcodeData = { barcode, itemId: null, name: '' };
+    showBarcodeResult('Unknown item', barcode, false);
+  }
+}
+
+function showBarcodeResult(name, barcode, isKnown) {
   document.getElementById('scanner-result').style.display = 'block';
+  document.getElementById('scanner-capture-area').style.display = 'block';
   document.getElementById('scanner-barcode').textContent = barcode;
-  document.getElementById('barcode-name').value = '';
-  document.getElementById('barcode-name-wrap').style.display = 'block';
-  document.getElementById('barcode-name').focus();
+  document.getElementById('scanner-item-name').textContent = name;
+  document.getElementById('scanner-hint').textContent = 'Now point camera at the price tag section';
+
+  // Show/hide name input for unknown items
+  const nameWrap = document.getElementById('barcode-name-wrap');
+  if (isKnown) {
+    nameWrap.style.display = 'none';
+  } else {
+    nameWrap.style.display = 'block';
+    document.getElementById('barcode-name').value = '';
+    document.getElementById('barcode-name').focus();
+  }
 }
 
 function saveBarcodeItem() {
-  const barcode = document.getElementById('scanner-barcode').textContent;
+  if (!scannedBarcodeData) return;
+  const barcode = scannedBarcodeData.barcode;
   const name = document.getElementById('barcode-name').value.trim();
   if (!name) { toast('Item name is required'); return; }
 
-  // Create the item
   const item = {
     id: genId(),
     name: name,
@@ -880,20 +891,192 @@ function saveBarcodeItem() {
   };
   items.unshift(item);
 
-  // Save barcode mapping
   barcodeMap[barcode] = item.id;
   saveBarcodeMap();
   saveBarcodeMapFirebase();
 
-  // Save item
   saveLocal();
   saveFirebase(item);
   render();
   updateFilters();
 
-  closeScanner();
-  toast('Item created from barcode — add a price now');
-  setTimeout(() => openDetail(item.id), 100);
+  // Update scanned data with new item ID
+  scannedBarcodeData.itemId = item.id;
+  scannedBarcodeData.name = name;
+  document.getElementById('scanner-item-name').textContent = name;
+  document.getElementById('barcode-name-wrap').style.display = 'none';
+
+  toast('Item saved — now capture price');
+}
+
+// ─── Price Tag OCR ────────────────────────────────────────────────────
+
+function capturePriceFromTag() {
+  if (ocrWorking) return;
+  if (!scannedBarcodeData) { toast('Scan a barcode first'); return; }
+
+  ocrWorking = true;
+  document.getElementById('btn-capture-price').disabled = true;
+  document.getElementById('btn-capture-price').textContent = '⏳ Reading price...';
+
+  // Grab a frame from the camera video
+  const videoEl = document.querySelector('#scanner-reader video');
+  if (!videoEl) {
+    ocrFailed('No camera feed');
+    return;
+  }
+
+  // Draw video frame to canvas
+  const canvas = document.getElementById('ocr-canvas');
+  canvas.width = videoEl.videoWidth || 640;
+  canvas.height = videoEl.videoHeight || 480;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+
+  // Show the captured frame for user feedback
+  document.getElementById('capture-preview').src = canvas.toDataURL('image/jpeg', 0.8);
+  document.getElementById('capture-preview').style.display = 'block';
+  document.getElementById('scanner-reader').style.display = 'none';
+
+  // Run OCR
+  runOcrOnCanvas(canvas);
+}
+
+function runOcrOnCanvas(canvas) {
+  if (typeof Tesseract === 'undefined') {
+    ocrFailed('OCR library not loaded. Check internet.');
+    return;
+  }
+
+  // Convert canvas to image data for Tesseract
+  // Use a timeout in case Tesseract hangs
+  const timeoutId = setTimeout(() => {
+    ocrFailed('OCR timed out. Try again.');
+  }, 30000);
+
+  Tesseract.recognize(
+    canvas,
+    'eng',
+    {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          document.getElementById('btn-capture-price').textContent =
+            '📖 Reading... ' + Math.round(m.progress * 100) + '%';
+        }
+      }
+    }
+  ).then(({ data: { text } }) => {
+    clearTimeout(timeoutId);
+    extractPriceFromText(text);
+  }).catch(err => {
+    clearTimeout(timeoutId);
+    ocrFailed('OCR error: ' + (err.message || err));
+  });
+}
+
+function extractPriceFromText(text) {
+  // Log raw OCR text for debugging
+  console.log('OCR text:', text);
+
+  // Malaysian price tags: "RM X.XX" or "RMXX.XX"
+  // Match patterns like: RM 6.65, RM6.65, RM 12.90, RM12.90
+  const priceRegex = /RM\s*([0-9]+[.,][0-9]{2})/gi;
+  const matches = [...text.matchAll(priceRegex)];
+
+  if (matches.length === 0) {
+    // Try alternative: just "X.XX" with currency symbol nearby
+    const altRegex = /([0-9]+[.,][0-9]{2})/g;
+    const altMatches = [...text.matchAll(altRegex)];
+    if (altMatches.length === 0) {
+      ocrFailed('Could not find price (RM X.XX). Try again or enter manually.');
+      return;
+    }
+    // Take the first number found
+    const rawPrice = altMatches[0][1].replace(',', '.');
+    const price = parseFloat(rawPrice);
+    if (isNaN(price) || price <= 0 || price > 9999) {
+      ocrFailed('Invalid price detected: ' + rawPrice + '. Try again.');
+      return;
+    }
+    ocrSuccess(price, text);
+    return;
+  }
+
+  // Take the first RM match (usually the most prominent on the tag)
+  const rawPrice = matches[0][1].replace(',', '.');
+  const price = parseFloat(rawPrice);
+  if (isNaN(price) || price <= 0 || price > 9999) {
+    ocrFailed('Invalid price: ' + rawPrice + '. Try again.');
+    return;
+  }
+
+  ocrSuccess(price, text);
+}
+
+function ocrSuccess(price, rawText) {
+  ocrWorking = false;
+  document.getElementById('btn-capture-price').disabled = false;
+  document.getElementById('btn-capture-price').textContent = '📸 Capture Price';
+
+  const itemId = scannedBarcodeData.itemId;
+  if (!itemId) {
+    ocrFailed('No item selected. Save the item name first.');
+    return;
+  }
+
+  // Close scanner
+  stopScanner();
+  $scannerModal.classList.remove('show');
+
+  // Open price modal with detected price pre-filled
+  const vId = items.find(i => i.id === itemId)?.variants?.[0]?.id;
+  if (vId) {
+    openPriceModal(itemId, vId, {
+      store: '',
+      price: price,
+      qty: '1 unit',
+      date: new Date().toISOString().split('T')[0],
+      notes: 'Scanned from price tag'
+    });
+    toast('💰 RM ' + price.toFixed(2) + ' detected — confirm store');
+  } else {
+    toast('Detected RM ' + price.toFixed(2) + ' but item has no variant');
+  }
+}
+
+function ocrFailed(msg) {
+  ocrWorking = false;
+  document.getElementById('btn-capture-price').disabled = false;
+  document.getElementById('btn-capture-price').textContent = '📸 Capture Price';
+  document.getElementById('scanner-reader').style.display = 'block';
+  document.getElementById('capture-preview').style.display = 'none';
+
+  // Resume scanner if still open
+  if (html5Scanner) {
+    try { html5Scanner.resume(); } catch(e) {}
+  }
+
+  toast(msg);
+}
+
+function skipPriceCapture() {
+  if (!scannedBarcodeData) { closeScanner(); return; }
+
+  stopScanner();
+  $scannerModal.classList.remove('show');
+
+  const itemId = scannedBarcodeData.itemId;
+  if (itemId) {
+    const item = items.find(i => i.id === itemId);
+    if (item) {
+      toast('Item found — add price manually');
+      openDetail(itemId);
+      return;
+    }
+  }
+
+  // Unknown, no name saved, just close
+  toast('Item not saved');
 }
 
 // ─── Client-side Price Search ─────────────────────────────────────────
@@ -906,7 +1089,6 @@ async function searchItemPrices(itemId, variantId) {
   const $el = document.getElementById('d-scrape-results');
   $el.innerHTML = '<div class="scrape-loading">Searching web for prices...</div>';
 
-  // Built-in price database for common items (instant, no web needed)
   const KNOWN_PRICES = {
     'coca cola': [
       { store: 'NSK', price: 2.30, qty: 'can 320ml' },
@@ -960,7 +1142,6 @@ async function searchItemPrices(itemId, variantId) {
     ],
   };
 
-  // Check knowledge base first
   const nameLower = item.name.toLowerCase().trim();
   let knownMatch = null;
   for (const [key, prices] of Object.entries(KNOWN_PRICES)) {
@@ -975,24 +1156,20 @@ async function searchItemPrices(itemId, variantId) {
     return;
   }
 
-  // Not in knowledge base — request via Firebase queue
   requestScrapeViaFirebase($el, item.id, variantId, item.name);
 }
 
 async function requestScrapeViaFirebase($el, itemId, variantId, itemName) {
   $el.innerHTML = '<div class="scrape-loading">⏳ Requesting price search...<br><span style="font-size:0.75rem;color:var(--text3)">This runs server-side, takes ~10s</span></div>';
 
-  // Normalize name for result lookup
   const norm = itemName.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
 
-  // Write request to Firebase
   const reqId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   const reqRef = db.ref(`_scrape/requests/${reqId}`);
   await reqRef.set({ name: itemName, norm, timestamp: Date.now() });
 
-  // Poll for results
   let attempts = 0;
-  const maxAttempts = 12; // ~36 seconds total
+  const maxAttempts = 12;
   const poll = () => {
     attempts++;
     db.ref(`_scrape/results/${norm}`).once('value', snap => {

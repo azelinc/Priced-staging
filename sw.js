@@ -1,9 +1,9 @@
-const CACHE_NAME = 'priced-v5';
+const CACHE_NAME = 'priced-v6';
 const ASSETS = [
   '/Priced/',
   '/Priced/index.html',
-  '/Priced/main.css?v=8',
-  '/Priced/app.js?v=8',
+  '/Priced/main.css?v=9',
+  '/Priced/app.js?v=9',
   '/Priced/manifest.json'
 ];
 

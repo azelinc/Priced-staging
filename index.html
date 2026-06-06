@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="Price database — compare and track item prices across stores and websites">
   <title>Priced — Price Database</title>
-  <link rel="stylesheet" href="main.css?v=8">
+  <link rel="stylesheet" href="main.css?v=9">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
 </head>
@@ -14,7 +14,7 @@
   <div class="app">
     <header>
       <div class="header-top">
-        <h1>Priced <span class="ver-badge" id="ver-badge">v8</span></h1>
+        <h1>Priced <span class="ver-badge" id="ver-badge">v9</span></h1>
         <button class="btn-icon" id="btn-login" title="Sign in to sync">🔐</button>
       </div>
       <p class="subtitle">Price database &amp; comparison</p>
@@ -40,7 +40,7 @@
     </main>
 
     <div class="fab-group">
-      <button class="fab fab-scan" id="btn-scan" title="Scan barcode">📷</button>
+      <button class="fab fab-scan" id="btn-scan" title="Scan barcode &amp; price tag">📷</button>
       <button class="fab fab-add" id="btn-add" title="Add item">+</button>
     </div>
   </div>
@@ -77,13 +77,8 @@
         </div>
       </div>
 
-      <!-- Variant tabs (populated by JS) -->
       <div class="variant-tabs" id="d-variant-tabs"></div>
-
-      <!-- Variant sections (populated by JS) -->
       <div id="d-variant-sections"></div>
-
-      <!-- Scrape results -->
       <div id="d-scrape-results"></div>
 
       <div class="modal-actions" style="margin-top:16px;">
@@ -136,32 +131,47 @@
     </div>
   </div>
 
-  <!-- MODAL: Barcode Scanner -->
+  <!-- MODAL: Barcode Scanner + Price Tag OCR -->
   <div class="modal-overlay" id="scanner-modal">
     <div class="modal modal-scanner">
       <div class="scanner-header">
-        <h2>📷 Scan Barcode</h2>
+        <h2>📷 Scan Price Tag</h2>
         <button class="btn-icon" id="btn-scanner-close" title="Close">✕</button>
       </div>
       <div id="scanner-view">
         <div id="scanner-reader"></div>
+        <img id="capture-preview" style="display:none;width:100%;border-radius:var(--radius);" alt="Captured frame">
       </div>
       <div id="scanner-error" class="scanner-error"></div>
+
+      <!-- After barcode scan: result + capture area -->
       <div id="scanner-result" style="display:none;">
         <div class="scanner-barcode-label">
-          Barcode: <strong id="scanner-barcode"></strong>
+          📦 <strong id="scanner-item-name"></strong>
+          <span style="font-size:0.75rem;color:var(--text3);display:block;">Barcode: <span id="scanner-barcode"></span></span>
         </div>
         <div class="field" id="barcode-name-wrap" style="display:none;">
           <label>Item name</label>
           <input type="text" id="barcode-name" placeholder="e.g. Dutch Lady Full Cream Milk" autocomplete="off">
         </div>
-        <div class="modal-actions-right" style="margin-top:12px;">
-          <button class="btn-primary btn-sm" id="btn-barcode-save">Save Item</button>
+      </div>
+
+      <!-- Capture area (shown after barcode scan) -->
+      <div id="scanner-capture-area" class="capture-area" style="display:none;">
+        <p class="capture-hint">Point camera at the price (RM X.XX) on the tag</p>
+        <div class="capture-actions">
+          <button class="btn-primary btn-sm" id="btn-capture-price">📸 Capture Price</button>
+          <button class="btn-ghost btn-sm" id="btn-barcode-save" style="display:none;">Save Item</button>
+          <button class="btn-ghost btn-sm" id="btn-skip-capture">Skip →</button>
         </div>
       </div>
-      <p class="scanner-hint">Point camera at barcode on product packaging</p>
+
+      <p class="scanner-hint" id="scanner-hint">Point camera at barcode on price tag</p>
     </div>
   </div>
+
+  <!-- Hidden canvas for OCR frame capture -->
+  <canvas id="ocr-canvas" style="display:none;"></canvas>
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
@@ -170,6 +180,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="app.js?v=8"></script>
+  <script src="https://unpkg.com/tesseract.js@4.1.2/dist/tesseract.min.js"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
