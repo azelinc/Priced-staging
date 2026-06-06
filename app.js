@@ -103,9 +103,7 @@ function bindEvents() {
   document.getElementById('btn-scan').addEventListener('click', openScanner);
   document.getElementById('btn-scanner-close').addEventListener('click', closeScanner);
   document.getElementById('scanner-modal').addEventListener('click', e => { if (e.target === $scannerModal) closeScanner(); });
-  document.getElementById('btn-barcode-save').addEventListener('click', saveBarcodeItem);
-  document.getElementById('btn-capture-price').addEventListener('click', capturePriceFromTag);
-  document.getElementById('btn-skip-capture').addEventListener('click', skipPriceCapture);
+  document.getElementById('btn-snap').addEventListener('click', snapPhoto);
 
   $search.addEventListener('input', render);
   $filterStore.addEventListener('change', render);
