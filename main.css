@@ -66,6 +66,20 @@ h1 {
   margin-top: 2px;
 }
 
+/* Version badge */
+.ver-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--text3);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+}
+
 .btn-icon {
   background: var(--surface2);
   border: 1px solid var(--border);
@@ -307,28 +321,50 @@ button {
 .btn-sm { padding: 8px 16px; font-size: 0.85rem; }
 .btn-xs { padding: 4px 10px; font-size: 0.78rem; }
 
-/* FAB */
-.fab {
+/* FAB Group */
+.fab-group {
   position: fixed;
   bottom: 24px;
   right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 50;
+}
+
+.fab {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--primary-dim);
-  color: #fff;
-  font-size: 1.6rem;
-  font-weight: 300;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 16px rgba(31,111,235,0.4);
-  z-index: 50;
   border: none;
   cursor: pointer;
   transition: all 0.2s;
+  font-size: 1.3rem;
 }
-.fab:hover { background: var(--primary); transform: scale(1.05); }
+.fab:hover { transform: scale(1.05); }
+
+.fab-add {
+  background: var(--primary-dim);
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: 300;
+}
+.fab-add:hover { background: var(--primary); }
+
+.fab-scan {
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 1.15rem;
+  width: 44px;
+  height: 44px;
+  align-self: flex-end;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.fab-scan:hover { background: var(--border); }
 
 /* Toast */
 .toast {
@@ -549,6 +585,60 @@ button {
   margin-top: 6px;
 }
 
+/* Scanner modal */
+.modal-scanner {
+  max-width: 480px;
+  padding: 16px;
+}
+
+.scanner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.scanner-header h2 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+#scanner-reader {
+  width: 100%;
+  min-height: 220px;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+#scanner-reader video {
+  border-radius: var(--radius);
+}
+
+.scanner-error {
+  color: var(--red);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 8px;
+}
+
+.scanner-hint {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text3);
+  margin-top: 8px;
+}
+
+.scanner-barcode-label {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--green);
+  padding: 8px;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  margin: 8px 0;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -561,6 +651,8 @@ button:disabled {
   .toolbar select { min-width: auto; }
   .field-row { flex-direction: column; gap: 0; }
   .detail-summary { flex-direction: column; }
+  .fab-group { bottom: 16px; right: 16px; gap: 10px; }
+  .fab-scan { width: 40px; height: 40px; font-size: 1rem; }
 }
 
 /* Variant tabs */

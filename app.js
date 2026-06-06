@@ -1,8 +1,14 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
+// Version: v8
+
+const APP_VER = 'v8';
+const LS_KEY = 'priced_v2';
+const LS_BARCODES = 'priced_barcodes';
+const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
 
 const FB_CONFIG = {
-  apiKey: "AIzaSyC2fezwrXSOeDCytG84RES-dJ04teLvmuo",
+  apiKey: "AIzaSy...vmuo",
   authDomain: "ainvested-703ec.firebaseapp.com",
   databaseURL: "https://ainvested-703ec-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "ainvested-703ec",
@@ -24,9 +30,6 @@ const CATEGORIES = [
   { id: 'other', label: 'Other', color: '#6e7681' }
 ];
 
-const LS_KEY = 'priced_v2';
-const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
-
 // State
 let items = [];
 let user = null;
@@ -37,6 +40,8 @@ let priceEditVariantId = null;
 let priceEditIdx = null;
 let detailItemId = null;
 let detailActiveVariant = null;
+let barcodeMap = {};
+let html5Scanner = null;
 
 // DOM refs
 const $list = document.getElementById('items-list');
@@ -46,13 +51,17 @@ const $filterCat = document.getElementById('filter-category');
 const $itemModal = document.getElementById('item-modal');
 const $detailModal = document.getElementById('detail-modal');
 const $priceModal = document.getElementById('price-modal');
+const $scannerModal = document.getElementById('scanner-modal');
 const $toast = document.getElementById('toast');
 const $btnLogin = document.getElementById('btn-login');
+const $verBadge = document.getElementById('ver-badge');
 
 // Init
 document.addEventListener('DOMContentLoaded', () => {
+  if ($verBadge) $verBadge.textContent = APP_VER;
   initCategories();
   loadLocal();
+  loadBarcodeMap();
   renderCategoryFilter();
   initFirebase();
   bindEvents();
@@ -88,6 +97,12 @@ function bindEvents() {
   document.getElementById('btn-price-delete').addEventListener('click', deletePriceEntry);
   document.getElementById('price-modal').addEventListener('click', e => { if (e.target === $priceModal) closePriceModal(); });
 
+  // Scanner events
+  document.getElementById('btn-scan').addEventListener('click', openScanner);
+  document.getElementById('btn-scanner-close').addEventListener('click', closeScanner);
+  document.getElementById('scanner-modal').addEventListener('click', e => { if (e.target === $scannerModal) closeScanner(); });
+  document.getElementById('btn-barcode-save').addEventListener('click', saveBarcodeItem);
+
   $search.addEventListener('input', render);
   $filterStore.addEventListener('change', render);
   $filterCat.addEventListener('change', render);
@@ -95,7 +110,8 @@ function bindEvents() {
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if ($priceModal.classList.contains('show')) closePriceModal();
+      if ($scannerModal.classList.contains('show')) closeScanner();
+      else if ($priceModal.classList.contains('show')) closePriceModal();
       else if ($detailModal.classList.contains('show')) closeDetailModal();
       else if ($itemModal.classList.contains('show')) closeItemModal();
     }
@@ -110,8 +126,13 @@ function initFirebase() {
     firebase.auth().onAuthStateChanged(u => {
       user = u;
       $btnLogin.textContent = u ? '👤' : '🔐';
-      if (u) loadFirebase();
-      else { loadLocal(); }
+      if (u) {
+        toast(APP_VER + ' — Synced ✓');
+        loadFirebase();
+        loadBarcodeMapFirebase();
+      } else {
+        loadLocal();
+      }
     });
   } catch(e) {
     console.warn('Firebase unavailable', e);
@@ -159,6 +180,42 @@ function saveFirebase(item) {
 function deleteFirebase(id) {
   if (!user) return;
   db.ref(`users/${user.uid}/priced/${id}`).remove();
+}
+
+// ---- Barcode Mapping ----
+function loadBarcodeMap() {
+  try {
+    barcodeMap = JSON.parse(localStorage.getItem(LS_BARCODES) || '{}');
+  } catch { barcodeMap = {}; }
+}
+
+function saveBarcodeMap() {
+  localStorage.setItem(LS_BARCODES, JSON.stringify(barcodeMap));
+}
+
+function loadBarcodeMapFirebase() {
+  if (!user) return;
+  db.ref(`users/${user.uid}/barcodes`).once('value', snap => {
+    const data = snap.val();
+    if (data) {
+      // Merge: local takes precedence, Firebase fills gaps
+      for (const [bc, val] of Object.entries(data)) {
+        if (!barcodeMap[bc]) barcodeMap[bc] = val;
+      }
+      saveBarcodeMap();
+    }
+  });
+}
+
+function saveBarcodeMapFirebase() {
+  if (!user) return;
+  db.ref(`users/${user.uid}/barcodes`).set(barcodeMap);
+}
+
+function getItemByBarcode(barcode) {
+  const itemId = barcodeMap[barcode];
+  if (!itemId) return null;
+  return items.find(i => i.id === itemId) || null;
 }
 
 // Migrate legacy flat items to variant model
@@ -717,6 +774,126 @@ function editPriceEntry(itemId, variantId, entryId) {
     closeDetailModal();
     openPriceModal(itemId, variantId, entry);
   }
+}
+
+// ─── Barcode Scanner ──────────────────────────────────────────────────
+
+function openScanner() {
+  $scannerModal.classList.add('show');
+  document.getElementById('scanner-result').style.display = 'none';
+  document.getElementById('scanner-error').textContent = '';
+  document.getElementById('scanner-view').innerHTML = '<div id="scanner-reader"></div>';
+
+  startScanner();
+}
+
+function closeScanner() {
+  stopScanner();
+  $scannerModal.classList.remove('show');
+  // Reset barcode name form
+  document.getElementById('barcode-name-wrap').style.display = 'none';
+}
+
+function startScanner() {
+  if (typeof Html5Qrcode === 'undefined') {
+    document.getElementById('scanner-error').textContent = 'Scanner library not loaded. Check internet connection.';
+    return;
+  }
+  try {
+    html5Scanner = new Html5Qrcode("scanner-reader");
+    html5Scanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 150 },
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.QR_CODE
+        ]
+      },
+      onBarcodeScan,
+      () => {} // ignore non-decodable frames
+    ).catch(err => {
+      document.getElementById('scanner-error').textContent = 'Camera error: ' + err;
+    });
+  } catch (e) {
+    document.getElementById('scanner-error').textContent = 'Scanner init failed: ' + e;
+  }
+}
+
+function stopScanner() {
+  if (html5Scanner) {
+    try {
+      html5Scanner.stop();
+      html5Scanner.clear();
+    } catch(e) {}
+    html5Scanner = null;
+  }
+}
+
+let scanCooldown = false;
+
+function onBarcodeScan(decodeText, decodeResult) {
+  if (scanCooldown) return;
+  scanCooldown = true;
+  setTimeout(() => { scanCooldown = false; }, 2000);
+
+  const barcode = decodeText.trim();
+  stopScanner();
+
+  // Check if this barcode is known
+  const existingItem = getItemByBarcode(barcode);
+  if (existingItem) {
+    closeScanner();
+    toast('Found: ' + existingItem.name);
+    openDetail(existingItem.id);
+    return;
+  }
+
+  // Unknown barcode — prompt to name it
+  document.getElementById('scanner-result').style.display = 'block';
+  document.getElementById('scanner-barcode').textContent = barcode;
+  document.getElementById('barcode-name').value = '';
+  document.getElementById('barcode-name-wrap').style.display = 'block';
+  document.getElementById('barcode-name').focus();
+}
+
+function saveBarcodeItem() {
+  const barcode = document.getElementById('scanner-barcode').textContent;
+  const name = document.getElementById('barcode-name').value.trim();
+  if (!name) { toast('Item name is required'); return; }
+
+  // Create the item
+  const item = {
+    id: genId(),
+    name: name,
+    category: 'other',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    barcode: barcode,
+    variants: [{ id: genId(), label: 'Default', prices: [] }]
+  };
+  items.unshift(item);
+
+  // Save barcode mapping
+  barcodeMap[barcode] = item.id;
+  saveBarcodeMap();
+  saveBarcodeMapFirebase();
+
+  // Save item
+  saveLocal();
+  saveFirebase(item);
+  render();
+  updateFilters();
+
+  closeScanner();
+  toast('Item created from barcode — add a price now');
+  setTimeout(() => openDetail(item.id), 100);
 }
 
 // ─── Client-side Price Search ─────────────────────────────────────────
