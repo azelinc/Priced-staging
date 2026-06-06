@@ -1,8 +1,8 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
-// Version: v9
+// Version: v10
 
-const APP_VER = 'v9';
+const APP_VER = 'v10';
 const LS_KEY = 'priced_v2';
 const LS_BARCODES = 'priced_barcodes';
 const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
@@ -909,7 +909,7 @@ function saveBarcodeItem() {
   toast('Item saved — now capture price');
 }
 
-// ─── Price Tag OCR ────────────────────────────────────────────────────
+// ─── Price Tag OCR via Gemini API ─────────────────────────────────────
 
 function capturePriceFromTag() {
   if (ocrWorking) return;
@@ -926,99 +926,117 @@ function capturePriceFromTag() {
     return;
   }
 
-  // Draw video frame to canvas
+  // Draw video frame to canvas (resize to 640px for speed)
   const canvas = document.getElementById('ocr-canvas');
-  canvas.width = videoEl.videoWidth || 640;
-  canvas.height = videoEl.videoHeight || 480;
+  const maxW = 640;
+  const scale = Math.min(maxW / (videoEl.videoWidth || 640), 1);
+  canvas.width = Math.round((videoEl.videoWidth || 640) * scale);
+  canvas.height = Math.round((videoEl.videoHeight || 480) * scale);
   const ctx = canvas.getContext('2d');
   ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
-  // Show the captured frame for user feedback
-  document.getElementById('capture-preview').src = canvas.toDataURL('image/jpeg', 0.8);
+  // Show captured frame
+  document.getElementById('capture-preview').src = canvas.toDataURL('image/jpeg', 0.7);
   document.getElementById('capture-preview').style.display = 'block';
   document.getElementById('scanner-reader').style.display = 'none';
 
-  // Run OCR
-  runOcrOnCanvas(canvas);
+  // Read price via Gemini API
+  readPriceWithGemini(canvas);
 }
 
-function runOcrOnCanvas(canvas) {
-  if (typeof Tesseract === 'undefined') {
-    ocrFailed('OCR library not loaded. Check internet.');
-    return;
-  }
+async function readPriceWithGemini(canvas) {
+  try {
+    // Convert canvas to base64 JPEG
+    const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-  // Convert canvas to image data for Tesseract
-  // Use a timeout in case Tesseract hangs
-  const timeoutId = setTimeout(() => {
-    ocrFailed('OCR timed out. Try again.');
-  }, 30000);
-
-  Tesseract.recognize(
-    canvas,
-    'eng',
-    {
-      logger: m => {
-        if (m.status === 'recognizing text') {
-          document.getElementById('btn-capture-price').textContent =
-            '📖 Reading... ' + Math.round(m.progress * 100) + '%';
-        }
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${FB_CONFIG.apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: 'What is the price on this Malaysian grocery price tag? Reply with ONLY the RM number like "6.65" or "12.90". No other text.' },
+              { inline_data: { mime_type: 'image/jpeg', data: base64 } }
+            ]
+          }]
+        })
       }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`API ${response.status}: ${errText.slice(0, 100)}`);
     }
-  ).then(({ data: { text } }) => {
-    clearTimeout(timeoutId);
-    extractPriceFromText(text);
-  }).catch(err => {
-    clearTimeout(timeoutId);
-    ocrFailed('OCR error: ' + (err.message || err));
-  });
-}
 
-function extractPriceFromText(text) {
-  // Log raw OCR text for debugging
-  console.log('OCR text:', text);
+    const data = await response.json();
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-  // Malaysian price tags: "RM X.XX" or "RMXX.XX"
-  // Match patterns like: RM 6.65, RM6.65, RM 12.90, RM12.90
-  const priceRegex = /RM\s*([0-9]+[.,][0-9]{2})/gi;
-  const matches = [...text.matchAll(priceRegex)];
+    console.log('Gemini reply:', reply);
 
-  if (matches.length === 0) {
-    // Try alternative: just "X.XX" with currency symbol nearby
-    const altRegex = /([0-9]+[.,][0-9]{2})/g;
-    const altMatches = [...text.matchAll(altRegex)];
-    if (altMatches.length === 0) {
-      ocrFailed('Could not find price (RM X.XX). Try again or enter manually.');
+    // Extract price: look for X.XX or XX.XX pattern
+    const match = reply.match(/([0-9]+[.,][0-9]{2})/);
+    if (!match) {
+      ocrFailed('Could not read price. Tap the price box to enter manually.');
       return;
     }
-    // Take the first number found
-    const rawPrice = altMatches[0][1].replace(',', '.');
-    const price = parseFloat(rawPrice);
+
+    const price = parseFloat(match[1].replace(',', '.'));
     if (isNaN(price) || price <= 0 || price > 9999) {
-      ocrFailed('Invalid price detected: ' + rawPrice + '. Try again.');
+      ocrFailed('Invalid price: ' + match[1] + '. Tap to enter manually.');
       return;
     }
-    ocrSuccess(price, text);
-    return;
-  }
 
-  // Take the first RM match (usually the most prominent on the tag)
-  const rawPrice = matches[0][1].replace(',', '.');
-  const price = parseFloat(rawPrice);
-  if (isNaN(price) || price <= 0 || price > 9999) {
-    ocrFailed('Invalid price: ' + rawPrice + '. Try again.');
-    return;
-  }
+    ocrSuccess(price);
 
-  ocrSuccess(price, text);
+  } catch (err) {
+    console.error('Gemini OCR error:', err);
+    // Fallback: try Firebase queue approach
+    try {
+      await readPriceViaFirebaseQueue(canvas);
+    } catch {
+      ocrFailed('Price read failed. Store + price will need manual entry.');
+    }
+  }
 }
 
-function ocrSuccess(price, rawText) {
+async function readPriceViaFirebaseQueue(canvas) {
+  if (!user || !db) throw new Error('No Firebase');
+
+  const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+  const reqId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+
+  document.getElementById('btn-capture-price').textContent = '⏳ Server processing...';
+
+  // Write OCR request to Firebase
+  await db.ref(`_ocr/requests/${reqId}`).set({
+    image: base64,
+    timestamp: Date.now()
+  });
+
+  // Poll for results (max 15s)
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    const snap = await db.ref(`_ocr/results/${reqId}`).once('value');
+    const data = snap.val();
+    if (data && data.price) {
+      ocrSuccess(parseFloat(data.price));
+      return;
+    }
+    document.getElementById('btn-capture-price').textContent =
+      `⏳ Processing... ${i + 1}/10`;
+  }
+
+  throw new Error('OCR queue timeout');
+}
+
+function ocrSuccess(price) {
   ocrWorking = false;
   document.getElementById('btn-capture-price').disabled = false;
   document.getElementById('btn-capture-price').textContent = '📸 Capture Price';
 
-  const itemId = scannedBarcodeData.itemId;
+  const itemId = scannedBarcodeData?.itemId;
   if (!itemId) {
     ocrFailed('No item selected. Save the item name first.');
     return;
@@ -1029,7 +1047,8 @@ function ocrSuccess(price, rawText) {
   $scannerModal.classList.remove('show');
 
   // Open price modal with detected price pre-filled
-  const vId = items.find(i => i.id === itemId)?.variants?.[0]?.id;
+  const item = items.find(i => i.id === itemId);
+  const vId = item?.variants?.[0]?.id;
   if (vId) {
     openPriceModal(itemId, vId, {
       store: '',
