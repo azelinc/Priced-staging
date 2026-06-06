@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="Price database — compare and track item prices across stores and websites">
   <title>Priced — Price Database</title>
-  <link rel="stylesheet" href="main.css?v=7">
+  <link rel="stylesheet" href="main.css?v=8">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
 </head>
@@ -14,7 +14,7 @@
   <div class="app">
     <header>
       <div class="header-top">
-        <h1>Priced</h1>
+        <h1>Priced <span class="ver-badge" id="ver-badge">v8</span></h1>
         <button class="btn-icon" id="btn-login" title="Sign in to sync">🔐</button>
       </div>
       <p class="subtitle">Price database &amp; comparison</p>
@@ -39,7 +39,10 @@
       </div>
     </main>
 
-    <button class="fab" id="btn-add" title="Add item">+</button>
+    <div class="fab-group">
+      <button class="fab fab-scan" id="btn-scan" title="Scan barcode">📷</button>
+      <button class="fab fab-add" id="btn-add" title="Add item">+</button>
+    </div>
   </div>
 
   <!-- MODAL: Add/Edit Item -->
@@ -133,12 +136,40 @@
     </div>
   </div>
 
+  <!-- MODAL: Barcode Scanner -->
+  <div class="modal-overlay" id="scanner-modal">
+    <div class="modal modal-scanner">
+      <div class="scanner-header">
+        <h2>📷 Scan Barcode</h2>
+        <button class="btn-icon" id="btn-scanner-close" title="Close">✕</button>
+      </div>
+      <div id="scanner-view">
+        <div id="scanner-reader"></div>
+      </div>
+      <div id="scanner-error" class="scanner-error"></div>
+      <div id="scanner-result" style="display:none;">
+        <div class="scanner-barcode-label">
+          Barcode: <strong id="scanner-barcode"></strong>
+        </div>
+        <div class="field" id="barcode-name-wrap" style="display:none;">
+          <label>Item name</label>
+          <input type="text" id="barcode-name" placeholder="e.g. Dutch Lady Full Cream Milk" autocomplete="off">
+        </div>
+        <div class="modal-actions-right" style="margin-top:12px;">
+          <button class="btn-primary btn-sm" id="btn-barcode-save">Save Item</button>
+        </div>
+      </div>
+      <p class="scanner-hint">Point camera at barcode on product packaging</p>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-  <script src="app.js?v=7"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
