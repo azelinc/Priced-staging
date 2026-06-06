@@ -629,6 +629,29 @@ button {
   margin-top: 8px;
 }
 
+/* Capture area (price tag OCR) */
+.capture-area {
+  margin-top: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.capture-hint {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--green);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.capture-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .scanner-barcode-label {
   text-align: center;
   font-size: 0.9rem;
