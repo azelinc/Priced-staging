@@ -1,14 +1,14 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
-// Version: v13
+// Version: v14
 
-const APP_VER = 'v13';
+const APP_VER = 'v14';
 const LS_KEY = 'priced_v2';
 const LS_BARCODES = 'priced_barcodes';
 const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
 
 const FB_CONFIG = {
-  apiKey: "AIzaSy...vmuo",
+  apiKey: "AIzaSyC2fezwrXSOeDCytG84RES-dJ04teLvmuo",
   authDomain: "ainvested-703ec.firebaseapp.com",
   databaseURL: "https://ainvested-703ec-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "ainvested-703ec",
@@ -837,72 +837,27 @@ function snapPhoto() {
 
 async function processTagPhoto(canvas) {
   ocrWorking = true;
-  toast('⏳ Reading barcode...');
+  toast('⏳ Reading tag...');
 
   try {
-    // Decode barcode from the still image
+    // First try: Gemini Vision API (reads barcode + price from one photo)
+    const price = await tryGeminiTagRead(canvas);
+    if (price !== null) {
+      ocrWorking = false;
+      return;
+    }
+
+    // Fallback: decode barcode from still image
+    toast('⏳ Reading barcode...');
     const barcode = await decodeBarcodeFromImage(canvas);
 
     if (!barcode) {
       ocrWorking = false;
-      toast('❌ No barcode found. Try again or add manually.');
+      toast('❌ Could not read tag. Try again or add manually.');
       return;
     }
 
-    // Find or create item from barcode
-    let itemId = barcodeMap[barcode];
-    let itemName = '';
-
-    if (itemId) {
-      const item = items.find(i => i.id === itemId);
-      itemName = item ? item.name : 'Item ' + barcode.slice(-4);
-      toast('✅ ' + itemName + ' — enter price');
-      // Open price modal directly
-      const vId = item?.variants?.[0]?.id;
-      if (vId) {
-        closeScanner();
-        openPriceModal(itemId, vId, {
-          store: '',
-          price: '',
-          qty: '1 unit',
-          date: new Date().toISOString().split('T')[0],
-          notes: ''
-        });
-        // Focus price field for quick typing
-        setTimeout(() => document.getElementById('p-price').focus(), 300);
-      }
-      ocrWorking = false;
-      return;
-    }
-
-    // Unknown item — quick name entry, then price
-    itemName = 'Item ' + barcode.slice(-4);
-
-    // Create item with barcode
-    const item = {
-      id: genId(),
-      name: itemName,
-      category: 'other',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      barcode: barcode,
-      variants: [{ id: genId(), label: 'Default', prices: [] }]
-    };
-    items.unshift(item);
-    barcodeMap[barcode] = item.id;
-    saveBarcodeMap();
-    saveBarcodeMapFirebase();
-    saveLocal();
-    saveFirebase(item);
-    render();
-    updateFilters();
-
-    // Open item edit to let user name it
-    closeScanner();
-    openItemModal(item);
-
-    toast('New item — name it, then add price');
-    ocrWorking = false;
+    await handleBarcodeItem(barcode);
 
   } catch (err) {
     console.error('Tag processing error:', err);
@@ -911,25 +866,151 @@ async function processTagPhoto(canvas) {
   }
 }
 
+async function tryGeminiTagRead(canvas) {
+  try {
+    // Resize to 800px max
+    const resized = document.createElement('canvas');
+    const maxW = 800;
+    const scale = Math.min(maxW / canvas.width, 1);
+    resized.width = Math.round(canvas.width * scale);
+    resized.height = Math.round(canvas.height * scale);
+    const rctx = resized.getContext('2d');
+    rctx.drawImage(canvas, 0, 0, resized.width, resized.height);
+    const base64 = resized.toDataURL('image/jpeg', 0.7).split(',')[1];
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${FB_CONFIG.apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: 'You are reading a Malaysian supermarket shelf price tag. Extract: BARCODE number (the long digits below the barcode lines), product NAME, PRICE in RM, and SIZE/volume. Reply EXACTLY:\nBARCODE: <number>\nNAME: <name>\nPRICE: <number>\nSIZE: <size>\nUse UNKNOWN if not visible.' },
+              { inline_data: { mime_type: 'image/jpeg', data: base64 } }
+            ]
+          }]
+        })
+      }
+    );
+
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+
+    const data = await response.json();
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('Gemini:', reply);
+
+    const barcode = reply.match(/BARCODE:\s*(\S+)/i)?.[1];
+    const name = reply.match(/NAME:\s*(.+)/i)?.[1]?.trim();
+    const price = reply.match(/PRICE:\s*([0-9.]+)/i)?.[1];
+    const size = reply.match(/SIZE:\s*(.+)/i)?.[1]?.trim();
+
+    if (barcode && barcode !== 'UNKNOWN' && barcode.match(/^[0-9]{8,}/)) {
+      // Found barcode + potentially price — save everything
+      let itemId = barcodeMap[barcode];
+      let itemName = name || 'Item ' + barcode.slice(-4);
+
+      if (!itemId) {
+        const item = {
+          id: genId(), name: itemName, category: 'other',
+          createdAt: Date.now(), updatedAt: Date.now(), barcode: barcode,
+          variants: [{ id: genId(), label: size && size !== 'UNKNOWN' ? size : 'Default', prices: [] }]
+        };
+        items.unshift(item);
+        barcodeMap[barcode] = item.id;
+        saveBarcodeMap(); saveBarcodeMapFirebase();
+        saveLocal(); saveFirebase(item);
+        render(); updateFilters();
+        itemId = item.id;
+      }
+
+      // Save price if found
+      if (price && parseFloat(price) > 0 && parseFloat(price) < 9999) {
+        const p = parseFloat(price);
+        const item = items.find(i => i.id === itemId);
+        if (item?.variants?.[0]) {
+          addPriceEntry(itemId, item.variants[0].id, {
+            store: '', price: p, qty: size || '1 unit',
+            date: new Date().toISOString().split('T')[0],
+            notes: 'Scanned from price tag', type: 'scanned'
+          });
+        }
+        toast('✅ ' + itemName + ' @ RM ' + p.toFixed(2));
+      } else {
+        toast('✅ ' + itemName + ' saved — enter price');
+        closeScanner();
+        const item = items.find(i => i.id === itemId);
+        if (item?.variants?.[0]) {
+          openPriceModal(itemId, item.variants[0].id, {
+            store: '', price: '', qty: '1 unit',
+            date: new Date().toISOString().split('T')[0], notes: ''
+          });
+          setTimeout(() => document.getElementById('p-price').focus(), 300);
+        }
+      }
+      ocrWorking = false;
+      return price;
+    }
+
+    // Gemini couldn't read barcode — fall through to barcode detection
+    return null;
+
+  } catch (err) {
+    console.log('Gemini unavailable, falling back to barcode scan:', err.message);
+    return null;
+  }
+}
+
 async function decodeBarcodeFromImage(canvas) {
-  // Try native BarcodeDetector first (fast, built into Chrome Android)
   if ('BarcodeDetector' in window) {
     try {
       const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'] });
       const barcodes = await detector.detect(canvas);
       if (barcodes.length > 0) return barcodes[0].rawValue;
-    } catch(e) { /* fall through */ }
+    } catch(e) {}
   }
-
-  // Fallback: html5-qrcode decode on still image  
   try {
-    const tempScanner = new Html5Qrcode("scanner-reader");
+    const tempScanner = new Html5Qrcode('scanner-reader');
     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     const result = await tempScanner.decode(dataUrl);
-    if (result && result.decodedText) return result.decodedText;
-  } catch(e) { /* no barcode in image */ }
-
+    if (result?.decodedText) return result.decodedText;
+  } catch(e) {}
   return null;
+}
+
+async function handleBarcodeItem(barcode) {
+  let itemId = barcodeMap[barcode];
+  if (itemId) {
+    const item = items.find(i => i.id === itemId);
+    const name = item?.name || 'Item ' + barcode.slice(-4);
+    toast('✅ ' + name + ' — enter price');
+    closeScanner();
+    if (item?.variants?.[0]) {
+      openPriceModal(itemId, item.variants[0].id, {
+        store: '', price: '', qty: '1 unit',
+        date: new Date().toISOString().split('T')[0], notes: ''
+      });
+      setTimeout(() => document.getElementById('p-price').focus(), 300);
+    }
+    ocrWorking = false;
+    return;
+  }
+
+  // New item
+  const item = {
+    id: genId(), name: 'Item ' + barcode.slice(-4), category: 'other',
+    createdAt: Date.now(), updatedAt: Date.now(), barcode: barcode,
+    variants: [{ id: genId(), label: 'Default', prices: [] }]
+  };
+  items.unshift(item);
+  barcodeMap[barcode] = item.id;
+  saveBarcodeMap(); saveBarcodeMapFirebase();
+  saveLocal(); saveFirebase(item);
+  render(); updateFilters();
+  closeScanner();
+  openItemModal(item);
+  toast('New item — name it, then add price');
+  ocrWorking = false;
 }
 
 // ─── Client-side Price Search ─────────────────────────────────────────
