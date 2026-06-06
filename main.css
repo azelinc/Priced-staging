@@ -629,6 +629,26 @@ button {
   margin-top: 8px;
 }
 
+/* Shutter button */
+.btn-shutter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #fff;
+  color: #000;
+  font-size: 1.4rem;
+  border: 4px solid var(--border);
+  margin: 12px auto 0;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.btn-shutter:hover { transform: scale(1.08); }
+.btn-shutter:disabled { opacity: 0.4; transform: none; cursor: default; }
+
 /* Capture area (price tag OCR) */
 .capture-area {
   margin-top: 8px;

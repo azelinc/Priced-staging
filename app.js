@@ -1,8 +1,8 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
-// Version: v10
+// Version: v11
 
-const APP_VER = 'v10';
+const APP_VER = 'v11';
 const LS_KEY = 'priced_v2';
 const LS_BARCODES = 'priced_barcodes';
 const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
@@ -767,188 +767,92 @@ function editPriceEntry(itemId, variantId, entryId) {
   }
 }
 
-// ─── Barcode Scanner + Price Tag OCR ──────────────────────────────────
+// ─── Single-Shot Price Tag Scanner ─────────────────────────────────────
 
 function openScanner() {
   scannedBarcodeData = null;
+  ocrWorking = false;
   $scannerModal.classList.add('show');
-  document.getElementById('scanner-result').style.display = 'none';
-  document.getElementById('scanner-capture-area').style.display = 'none';
   document.getElementById('scanner-error').textContent = '';
   document.getElementById('scanner-view').innerHTML = '<div id="scanner-reader"></div>';
-  document.getElementById('scanner-hint').textContent = 'Point camera at barcode on price tag';
+  document.getElementById('scanner-hint').textContent = 'Point at price tag, then tap the button';
+  document.getElementById('btn-snap').style.display = 'flex';
+  document.getElementById('btn-snap').disabled = false;
 
-  startScanner();
+  startCamera();
 }
 
 function closeScanner() {
-  stopScanner();
+  stopCamera();
   $scannerModal.classList.remove('show');
-  document.getElementById('barcode-name-wrap').style.display = 'none';
-  scannedBarcodeData = null;
-  ocrWorking = false;
 }
 
-function startScanner() {
+function startCamera() {
   if (typeof Html5Qrcode === 'undefined') {
-    document.getElementById('scanner-error').textContent = 'Scanner library not loaded. Check internet connection.';
+    document.getElementById('scanner-error').textContent = 'Camera library not loaded.';
     return;
   }
   try {
     html5Scanner = new Html5Qrcode("scanner-reader");
     html5Scanner.start(
       { facingMode: "environment" },
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 150 },
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.QR_CODE
-        ]
-      },
-      onBarcodeScan,
+      { fps: 15, qrbox: { width: 300, height: 200 } },
+      () => {}, // ignore auto-detect
       () => {}
     ).catch(err => {
       document.getElementById('scanner-error').textContent = 'Camera error: ' + err;
     });
   } catch (e) {
-    document.getElementById('scanner-error').textContent = 'Scanner init failed: ' + e;
+    document.getElementById('scanner-error').textContent = 'Camera failed: ' + e;
   }
 }
 
-function stopScanner() {
+function stopCamera() {
   if (html5Scanner) {
-    try {
-      html5Scanner.stop();
-      html5Scanner.clear();
-    } catch(e) {}
+    try { html5Scanner.stop(); html5Scanner.clear(); } catch(e) {}
     html5Scanner = null;
   }
 }
 
-let scanCooldown = false;
-
-function onBarcodeScan(decodeText, decodeResult) {
-  if (scanCooldown) return;
-  scanCooldown = true;
-  setTimeout(() => { scanCooldown = false; }, 2000);
-
-  const barcode = decodeText.trim();
-
-  // Pause decoding but keep camera alive for price capture
-  if (html5Scanner) {
-    try { html5Scanner.pause(); } catch(e) {}
-  }
-
-  const existingItem = getItemByBarcode(barcode);
-
-  if (existingItem) {
-    scannedBarcodeData = { barcode, itemId: existingItem.id, name: existingItem.name };
-    showBarcodeResult(existingItem.name, barcode, true);
-  } else {
-    scannedBarcodeData = { barcode, itemId: null, name: '' };
-    showBarcodeResult('Unknown item', barcode, false);
-  }
-}
-
-function showBarcodeResult(name, barcode, isKnown) {
-  document.getElementById('scanner-result').style.display = 'block';
-  document.getElementById('scanner-capture-area').style.display = 'block';
-  document.getElementById('scanner-barcode').textContent = barcode;
-  document.getElementById('scanner-item-name').textContent = name;
-  document.getElementById('scanner-hint').textContent = 'Now point camera at the price tag section';
-
-  // Show/hide name input for unknown items
-  const nameWrap = document.getElementById('barcode-name-wrap');
-  if (isKnown) {
-    nameWrap.style.display = 'none';
-  } else {
-    nameWrap.style.display = 'block';
-    document.getElementById('barcode-name').value = '';
-    document.getElementById('barcode-name').focus();
-  }
-}
-
-function saveBarcodeItem() {
-  if (!scannedBarcodeData) return;
-  const barcode = scannedBarcodeData.barcode;
-  const name = document.getElementById('barcode-name').value.trim();
-  if (!name) { toast('Item name is required'); return; }
-
-  const item = {
-    id: genId(),
-    name: name,
-    category: 'other',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    barcode: barcode,
-    variants: [{ id: genId(), label: 'Default', prices: [] }]
-  };
-  items.unshift(item);
-
-  barcodeMap[barcode] = item.id;
-  saveBarcodeMap();
-  saveBarcodeMapFirebase();
-
-  saveLocal();
-  saveFirebase(item);
-  render();
-  updateFilters();
-
-  // Update scanned data with new item ID
-  scannedBarcodeData.itemId = item.id;
-  scannedBarcodeData.name = name;
-  document.getElementById('scanner-item-name').textContent = name;
-  document.getElementById('barcode-name-wrap').style.display = 'none';
-
-  toast('Item saved — now capture price');
-}
-
-// ─── Price Tag OCR via Gemini API ─────────────────────────────────────
-
-function capturePriceFromTag() {
+function snapPhoto() {
   if (ocrWorking) return;
-  if (!scannedBarcodeData) { toast('Scan a barcode first'); return; }
-
-  ocrWorking = true;
-  document.getElementById('btn-capture-price').disabled = true;
-  document.getElementById('btn-capture-price').textContent = '⏳ Reading price...';
-
-  // Grab a frame from the camera video
   const videoEl = document.querySelector('#scanner-reader video');
-  if (!videoEl) {
-    ocrFailed('No camera feed');
-    return;
-  }
+  if (!videoEl) { toast('Camera not ready'); return; }
 
-  // Draw video frame to canvas (resize to 640px for speed)
+  // Capture frame
   const canvas = document.getElementById('ocr-canvas');
-  const maxW = 640;
-  const scale = Math.min(maxW / (videoEl.videoWidth || 640), 1);
-  canvas.width = Math.round((videoEl.videoWidth || 640) * scale);
-  canvas.height = Math.round((videoEl.videoHeight || 480) * scale);
+  canvas.width = videoEl.videoWidth || 1280;
+  canvas.height = videoEl.videoHeight || 720;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
-  // Show captured frame
-  document.getElementById('capture-preview').src = canvas.toDataURL('image/jpeg', 0.7);
-  document.getElementById('capture-preview').style.display = 'block';
-  document.getElementById('scanner-reader').style.display = 'none';
+  // Close scanner immediately — user can walk away
+  document.getElementById('btn-snap').disabled = true;
+  document.getElementById('btn-snap').textContent = '✓';
+  stopCamera();
+  $scannerModal.classList.remove('show');
 
-  // Read price via Gemini API
-  readPriceWithGemini(canvas);
+  // Process in background
+  toast('⏳ Reading price tag...');
+  processTagPhoto(canvas);
 }
 
-async function readPriceWithGemini(canvas) {
-  try {
-    // Convert canvas to base64 JPEG
-    const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+async function processTagPhoto(canvas) {
+  ocrWorking = true;
 
+  try {
+    // Resize to 800px for upload speed
+    const resized = document.createElement('canvas');
+    const maxW = 800;
+    const scale = Math.min(maxW / canvas.width, 1);
+    resized.width = Math.round(canvas.width * scale);
+    resized.height = Math.round(canvas.height * scale);
+    const rctx = resized.getContext('2d');
+    rctx.drawImage(canvas, 0, 0, resized.width, resized.height);
+
+    const base64 = resized.toDataURL('image/jpeg', 0.7).split(',')[1];
+
+    // Gemini: extract barcode + name + price from a single image
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${FB_CONFIG.apiKey}`,
       {
@@ -957,7 +861,26 @@ async function readPriceWithGemini(canvas) {
         body: JSON.stringify({
           contents: [{
             parts: [
-              { text: 'What is the price on this Malaysian grocery price tag? Reply with ONLY the RM number like "6.65" or "12.90". No other text.' },
+              { text: `You are a price tag reader for a Malaysian grocery app.
+Look at this image of a supermarket shelf price tag.
+Extract these 4 things:
+
+1. BARCODE — the long number printed below the barcode lines (usually 13 digits)
+2. NAME — the product name on the tag
+3. PRICE — the price in RM (just the number, no RM symbol)
+4. SIZE — the quantity/size/volume
+
+Rules:
+- If you see "RM 6.65", output PRICE: 6.65
+- If you see a barcode number like 9555050301702, output BARCODE: 9555050301702
+- NAME is the product name line on the tag
+- SIZE is the volume/weight on the tag
+
+Reply EXACTLY in this format with NO other text:
+BARCODE: <number or UNKNOWN>
+NAME: <product name or UNKNOWN>
+PRICE: <number or UNKNOWN>
+SIZE: <size or UNKNOWN>` },
               { inline_data: { mime_type: 'image/jpeg', data: base64 } }
             ]
           }]
@@ -966,136 +889,118 @@ async function readPriceWithGemini(canvas) {
     );
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`API ${response.status}: ${errText.slice(0, 100)}`);
+      throw new Error(`API ${response.status}`);
     }
 
     const data = await response.json();
     const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('Gemini tag parse:', reply);
 
-    console.log('Gemini reply:', reply);
+    // Parse structured response
+    const barcodeMatch = reply.match(/BARCODE:\s*(\S+)/i);
+    const nameMatch = reply.match(/NAME:\s*(.+)/i);
+    const priceMatch = reply.match(/PRICE:\s*([0-9.]+)/i);
+    const sizeMatch = reply.match(/SIZE:\s*(.+)/i);
 
-    // Extract price: look for X.XX or XX.XX pattern
-    const match = reply.match(/([0-9]+[.,][0-9]{2})/);
-    if (!match) {
-      ocrFailed('Could not read price. Tap the price box to enter manually.');
+    const barcode = barcodeMatch ? barcodeMatch[1].trim() : null;
+    const name = nameMatch ? nameMatch[1].trim() : null;
+    const price = priceMatch ? parseFloat(priceMatch[1]) : null;
+    const size = sizeMatch ? sizeMatch[1].trim() : null;
+
+    if (!barcode || barcode === 'UNKNOWN' || !barcode.match(/^[0-9]{8,}/)) {
+      // No barcode found — try html5-qrcode decode on still image
+      let decodedBarcode = await decodeBarcodeFromImage(resized);
+      if (!decodedBarcode) {
+        ocrWorking = false;
+        toast('❌ Could not read tag. Try again or add manually.');
+        return;
+      }
+      // Use decoded barcode, but keep name/price from Gemini if available
+      await saveTagResult(decodedBarcode, name, price, size);
       return;
     }
 
-    const price = parseFloat(match[1].replace(',', '.'));
-    if (isNaN(price) || price <= 0 || price > 9999) {
-      ocrFailed('Invalid price: ' + match[1] + '. Tap to enter manually.');
-      return;
-    }
-
-    ocrSuccess(price);
+    await saveTagResult(barcode, name, price, size);
 
   } catch (err) {
-    console.error('Gemini OCR error:', err);
-    // Fallback: try Firebase queue approach
+    console.error('Tag processing error:', err);
+    ocrWorking = false;
+    toast('❌ Processing failed. Try again or add manually.');
+  }
+}
+
+async function decodeBarcodeFromImage(canvas) {
+  // Try native BarcodeDetector first (fast, built into Chrome Android)
+  if ('BarcodeDetector' in window) {
     try {
-      await readPriceViaFirebaseQueue(canvas);
-    } catch {
-      ocrFailed('Price read failed. Store + price will need manual entry.');
-    }
-  }
-}
-
-async function readPriceViaFirebaseQueue(canvas) {
-  if (!user || !db) throw new Error('No Firebase');
-
-  const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-  const reqId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-
-  document.getElementById('btn-capture-price').textContent = '⏳ Server processing...';
-
-  // Write OCR request to Firebase
-  await db.ref(`_ocr/requests/${reqId}`).set({
-    image: base64,
-    timestamp: Date.now()
-  });
-
-  // Poll for results (max 15s)
-  for (let i = 0; i < 10; i++) {
-    await new Promise(r => setTimeout(r, 1500));
-    const snap = await db.ref(`_ocr/results/${reqId}`).once('value');
-    const data = snap.val();
-    if (data && data.price) {
-      ocrSuccess(parseFloat(data.price));
-      return;
-    }
-    document.getElementById('btn-capture-price').textContent =
-      `⏳ Processing... ${i + 1}/10`;
+      const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'] });
+      const barcodes = await detector.detect(canvas);
+      if (barcodes.length > 0) return barcodes[0].rawValue;
+    } catch(e) { /* fall through */ }
   }
 
-  throw new Error('OCR queue timeout');
+  // Fallback: html5-qrcode decode on still image
+  try {
+    // Create a temp scanner that decodes a single image
+    const tempScanner = new Html5Qrcode("scanner-reader");
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const result = await tempScanner.decode(dataUrl);
+    if (result && result.decodedText) return result.decodedText;
+  } catch(e) { /* no barcode in image */ }
+
+  return null;
 }
 
-function ocrSuccess(price) {
-  ocrWorking = false;
-  document.getElementById('btn-capture-price').disabled = false;
-  document.getElementById('btn-capture-price').textContent = '📸 Capture Price';
+async function saveTagResult(barcode, name, price, size) {
+  // Find or create item
+  let itemId = barcodeMap[barcode];
+  let itemName = name;
 
-  const itemId = scannedBarcodeData?.itemId;
   if (!itemId) {
-    ocrFailed('No item selected. Save the item name first.');
-    return;
+    // New item
+    itemName = name || 'Item ' + barcode.slice(-4);
+    const item = {
+      id: genId(),
+      name: itemName,
+      category: 'other',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      barcode: barcode,
+      variants: [{ id: genId(), label: size && size !== 'UNKNOWN' ? size : 'Default', prices: [] }]
+    };
+    items.unshift(item);
+    barcodeMap[barcode] = item.id;
+    saveBarcodeMap();
+    saveBarcodeMapFirebase();
+    saveLocal();
+    saveFirebase(item);
+    render();
+    updateFilters();
+    itemId = item.id;
   }
 
-  // Close scanner
-  stopScanner();
-  $scannerModal.classList.remove('show');
-
-  // Open price modal with detected price pre-filled
-  const item = items.find(i => i.id === itemId);
-  const vId = item?.variants?.[0]?.id;
-  if (vId) {
-    openPriceModal(itemId, vId, {
-      store: '',
-      price: price,
-      qty: '1 unit',
-      date: new Date().toISOString().split('T')[0],
-      notes: 'Scanned from price tag'
-    });
-    toast('💰 RM ' + price.toFixed(2) + ' detected — confirm store');
-  } else {
-    toast('Detected RM ' + price.toFixed(2) + ' but item has no variant');
-  }
-}
-
-function ocrFailed(msg) {
-  ocrWorking = false;
-  document.getElementById('btn-capture-price').disabled = false;
-  document.getElementById('btn-capture-price').textContent = '📸 Capture Price';
-  document.getElementById('scanner-reader').style.display = 'block';
-  document.getElementById('capture-preview').style.display = 'none';
-
-  // Resume scanner if still open
-  if (html5Scanner) {
-    try { html5Scanner.resume(); } catch(e) {}
-  }
-
-  toast(msg);
-}
-
-function skipPriceCapture() {
-  if (!scannedBarcodeData) { closeScanner(); return; }
-
-  stopScanner();
-  $scannerModal.classList.remove('show');
-
-  const itemId = scannedBarcodeData.itemId;
-  if (itemId) {
+  // Save price if found
+  if (price && price > 0 && price < 9999) {
     const item = items.find(i => i.id === itemId);
     if (item) {
-      toast('Item found — add price manually');
-      openDetail(itemId);
-      return;
+      const variant = item.variants[0];
+      if (variant) {
+        addPriceEntry(itemId, variant.id, {
+          store: '',
+          price: price,
+          qty: size || '1 unit',
+          date: new Date().toISOString().split('T')[0],
+          notes: 'Scanned from price tag',
+          type: 'scanned'
+        });
+      }
     }
+    toast('✅ ' + itemName + ' @ RM ' + price.toFixed(2));
+  } else {
+    toast('✅ ' + itemName + ' saved — no price detected');
   }
 
-  // Unknown, no name saved, just close
-  toast('Item not saved');
+  ocrWorking = false;
 }
 
 // ─── Client-side Price Search ─────────────────────────────────────────
