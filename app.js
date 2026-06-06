@@ -1,8 +1,8 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
-// Version: v14
+// Version: v15
 
-const APP_VER = 'v14';
+const APP_VER = 'v15';
 const LS_KEY = 'priced_v2';
 const LS_BARCODES = 'priced_barcodes';
 const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
@@ -104,6 +104,8 @@ function bindEvents() {
   document.getElementById('btn-scanner-close').addEventListener('click', closeScanner);
   document.getElementById('scanner-modal').addEventListener('click', e => { if (e.target === $scannerModal) closeScanner(); });
   document.getElementById('btn-snap').addEventListener('click', snapPhoto);
+  document.getElementById('btn-gallery').addEventListener('click', pickFromGallery);
+  document.getElementById('gallery-input').addEventListener('change', onGalleryFile);
 
   $search.addEventListener('input', render);
   $filterStore.addEventListener('change', render);
@@ -776,6 +778,8 @@ function openScanner() {
   document.getElementById('scanner-hint').textContent = 'Point at price tag, then tap the button';
   document.getElementById('btn-snap').style.display = 'flex';
   document.getElementById('btn-snap').disabled = false;
+  document.getElementById('btn-snap').textContent = '📸 Snap';
+  document.getElementById('btn-gallery').style.display = 'flex';
 
   startCamera();
 }
@@ -833,6 +837,40 @@ function snapPhoto() {
   // Process in background
   toast('⏳ Reading price tag...');
   processTagPhoto(canvas);
+}
+
+function pickFromGallery() {
+  if (ocrWorking) return;
+  // Trigger file picker
+  document.getElementById('gallery-input').value = '';
+  document.getElementById('gallery-input').click();
+}
+
+function onGalleryFile(e) {
+  if (ocrWorking) return;
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  // Read file and draw to canvas
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.getElementById('ocr-canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(img.src);
+
+    // Close scanner & process
+    stopCamera();
+    $scannerModal.classList.remove('show');
+    toast('⏳ Reading price tag...');
+    processTagPhoto(canvas);
+  };
+  img.onerror = () => {
+    toast('❌ Could not load image');
+  };
+  img.src = URL.createObjectURL(file);
 }
 
 async function processTagPhoto(canvas) {

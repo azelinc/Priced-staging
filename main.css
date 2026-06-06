@@ -649,6 +649,33 @@ button {
 .btn-shutter:hover { transform: scale(1.08); }
 .btn-shutter:disabled { opacity: 0.4; transform: none; cursor: default; }
 
+/* Scanner action buttons row */
+.scanner-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 12px;
+}
+
+/* Gallery picker button */
+.btn-gallery {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  background: var(--primary-dim);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-gallery:hover { background: var(--primary); }
+
 /* Capture area (price tag OCR) */
 .capture-area {
   margin-top: 8px;

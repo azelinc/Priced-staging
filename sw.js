@@ -1,10 +1,10 @@
-const CACHE_NAME = 'priced-v10';
+const CACHE_NAME = 'priced-v11';
 const ASSETS = [
-  '/Priced/',
-  '/Priced/index.html',
-  '/Priced/main.css?v=14',
-  '/Priced/app.js?v=14',
-  '/Priced/manifest.json'
+  '/Priced-staging/',
+  '/Priced-staging/index.html',
+  '/Priced-staging/main.css?v=15',
+  '/Priced-staging/app.js?v=15',
+  '/Priced-staging/manifest.json'
 ];
 
 self.addEventListener('install', e => {
