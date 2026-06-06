@@ -1,8 +1,8 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
-// Version: v11
+// Version: v12
 
-const APP_VER = 'v11';
+const APP_VER = 'v12';
 const LS_KEY = 'priced_v2';
 const LS_BARCODES = 'priced_barcodes';
 const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
