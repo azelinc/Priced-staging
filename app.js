@@ -1,8 +1,8 @@
 // Priced — Price Database & Comparison
 // Firebase: ainvested-703ec
-// Version: v16
+// Version: v17
 
-const APP_VER = 'v16';
+const APP_VER = 'v17';
 const LS_KEY = 'priced_v2';
 const LS_BARCODES = 'priced_barcodes';
 const STORES = ['AEON', 'Lotus\'s', 'NSK', 'Village Grocer', 'Jaya Grocer', 'Mydin', 'Econsave', 'Speedmart', 'Giant', 'HappyFresh'];
@@ -851,7 +851,7 @@ function onGalleryFile(e) {
   const file = e.target.files?.[0];
   if (!file) return;
 
-  // Read file and draw to canvas
+  // Read file and draw to canvas (for Gemini vision)
   const img = new Image();
   img.onload = () => {
     const canvas = document.getElementById('ocr-canvas');
@@ -861,11 +861,11 @@ function onGalleryFile(e) {
     ctx.drawImage(img, 0, 0);
     URL.revokeObjectURL(img.src);
 
-    // Close scanner & process
+    // Close scanner & process — pass file for barcode fallback
     stopCamera();
     $scannerModal.classList.remove('show');
     toast('⏳ Reading price tag...');
-    processTagPhoto(canvas);
+    processTagPhoto(canvas, file);
   };
   img.onerror = () => {
     toast('❌ Could not load image');
@@ -873,7 +873,7 @@ function onGalleryFile(e) {
   img.src = URL.createObjectURL(file);
 }
 
-async function processTagPhoto(canvas) {
+async function processTagPhoto(canvas, file) {
   ocrWorking = true;
   toast('⏳ Reading tag...');
 
@@ -887,7 +887,7 @@ async function processTagPhoto(canvas) {
 
     // Fallback: decode barcode from still image
     toast('⏳ Reading barcode...');
-    const barcode = await decodeBarcodeFromImage(canvas);
+    const barcode = await decodeBarcodeFromImage(canvas, file);
 
     if (!barcode) {
       ocrWorking = false;
@@ -900,7 +900,7 @@ async function processTagPhoto(canvas) {
   } catch (err) {
     console.error('Tag processing error:', err);
     ocrWorking = false;
-    toast('❌ Processing failed. Try again or add manually.');
+    toast('❌ Processing failed: ' + (err.message || err));
   }
 }
 
@@ -932,7 +932,10 @@ async function tryGeminiTagRead(canvas) {
       }
     );
 
-    if (!response.ok) throw new Error('HTTP ' + response.status);
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error('HTTP ' + response.status + (body ? ': ' + body.slice(0, 100) : ''));
+    }
 
     const data = await response.json();
     const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -999,7 +1002,18 @@ async function tryGeminiTagRead(canvas) {
   }
 }
 
-async function decodeBarcodeFromImage(canvas) {
+async function decodeBarcodeFromImage(canvas, file) {
+  // If we have the original File, use Html5Qrcode.scanFile (proper API)
+  if (file) {
+    try {
+      const tempScanner = new Html5Qrcode('scanner-reader');
+      const result = await tempScanner.scanFile(file, true);
+      if (result) return result;
+    } catch(e) {
+      console.log('scanFile fallback failed:', e);
+    }
+  }
+  // Try native BarcodeDetector API (Chromium — works with canvas)
   if ('BarcodeDetector' in window) {
     try {
       const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'] });
@@ -1007,12 +1021,6 @@ async function decodeBarcodeFromImage(canvas) {
       if (barcodes.length > 0) return barcodes[0].rawValue;
     } catch(e) {}
   }
-  try {
-    const tempScanner = new Html5Qrcode('scanner-reader');
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-    const result = await tempScanner.decode(dataUrl);
-    if (result?.decodedText) return result.decodedText;
-  } catch(e) {}
   return null;
 }
 
